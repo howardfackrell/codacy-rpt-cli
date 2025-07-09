@@ -4,6 +4,10 @@ const axios = require("axios");
 const CODACY_API_URL = 'https://api.codacy.com/api/v3';
 const PROVIDER = 'gh';
 
+const CODACY_COVERAGE_VARIATION = 'Codacy Coverage Variation';
+const CODACY_COVERAGE_DIFF = 'Codacy Diff Coverage';
+const CODACY_STATIC_ANALYSIS = 'Codacy Static Code Analysis';
+
 function readJsonFile(filename) {
     const data = fs.readFileSync(filename, 'utf-8');
     return JSON.parse(data);
@@ -17,6 +21,28 @@ function headers(repoToken) {
             "api-token": repoToken
         }
     };
+}
+
+async function getBranchProtection(repo) {
+    const url = `https://api.github.com/repos/${repo.organization}/${repo.name}/branches/${repo.branch}/protection/required_status_checks`;
+
+    try {
+        const response = await axios.get(url, {
+            headers: {
+                "Authorization": `Bearer ${process.env.GITHUB_API_TOKEN}`,
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28"
+            }
+        });
+        let checkContexts = response.data.contexts;
+        return {
+            "Codacy Coverage Variation": checkContexts.find(s => CODACY_COVERAGE_VARIATION === s) == null ? "" : "required",
+            "Codacy Diff Coverage": checkContexts.find(s => CODACY_COVERAGE_DIFF === s) == null ? "" : "required",
+            'Codacy Static Code Analysis' : checkContexts.find(s => CODACY_STATIC_ANALYSIS === s) == null ? "" : "required"
+        }
+    } catch (error) {
+        console.error(`Error fetching coverage for ${repo.name}:`, error.response ? error.response.data : error.message);
+    }
 }
 
 async function getCoverage(repo) {
@@ -64,13 +90,14 @@ async function main() {
             {},
             {"name": repo.name},
             {coverage: await getCoverage(repo)},
-            await getIssueSeverityCounts(repo)
+            await getIssueSeverityCounts(repo),
+            await getBranchProtection(repo)
         );
         repoSummaries.push(summary);
     }
 
     console.log("Generated on " + new Date());
-    console.table(repoSummaries, ['name', 'coverage', 'Error', 'Warning', 'Info']);
+    console.table(repoSummaries, ['name', 'coverage', 'Error', 'Warning', 'Info', CODACY_COVERAGE_DIFF, CODACY_COVERAGE_VARIATION, CODACY_STATIC_ANALYSIS]);
 }
 
 function frequencies(list) {
